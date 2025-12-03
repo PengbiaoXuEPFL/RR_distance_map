@@ -1,2 +1,0 @@
-source venv/bin/activate
-python analyze_cgas_clustering.py 
