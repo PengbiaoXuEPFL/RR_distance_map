@@ -443,7 +443,7 @@ def analyze_cluster_composition(clustering_results):
         print(f"\n  Members: {', '.join(cluster_labels)}\n")
 
 def main():
-    base_dir = Path("/Users/pxu/Dropbox/cGAS-binder/RR distance map")
+    base_dir = Path(".")
     output_dir = base_dir / "clustering_analysis"
     output_dir.mkdir(exist_ok=True)
     
