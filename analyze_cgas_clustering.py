@@ -7,25 +7,38 @@ New features:
 - Generate difference maps (each condition - apo_cgas)
 - Interactive HTML visualizations for difference maps
 """
+print("Starting script...")
 
+print("Importing numpy...")
 import numpy as np
+print("Importing matplotlib...")
 import matplotlib.pyplot as plt
+print("Importing seaborn...")
 import seaborn as sns
+print("Importing pathlib...")
 from pathlib import Path
+print("Importing scipy...")
 from scipy.cluster.hierarchy import dendrogram, linkage, fcluster
+print("Importing sklearn PCA...")
 from sklearn.decomposition import PCA
+print("Importing sklearn KMeans...")
 from sklearn.cluster import KMeans
+print("Importing plotly...")
 import plotly.graph_objects as go
+print("Importing plotly subplots...")
 from plotly.subplots import make_subplots
+print("Importing warnings...")
 import warnings
 warnings.filterwarnings('ignore')
 
+print("Importing gemmi or Bio.PDB...")
 try:
     import gemmi
     HAS_GEMMI = True
 except ImportError:
     HAS_GEMMI = False
     from Bio.PDB import MMCIFParser
+print("Imports complete.")
 
 def parse_cif(cif_file):
     """Parse .cif file and extract all chains."""
@@ -512,4 +525,6 @@ def main():
     print(f"  • diff_*.html - Interactive difference maps vs apo_cgas")
 
 if __name__ == "__main__":
+    print("Executing main...")
     main()
+    print("Main finished.")
