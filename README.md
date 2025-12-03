@@ -2,7 +2,7 @@
 
 git clone https://github.com/PengbiaoXuEPFL/RR_distance_map/
 
-cd yourrepo
+cd RR_distance_map
 
 python3 -m venv venv
 
