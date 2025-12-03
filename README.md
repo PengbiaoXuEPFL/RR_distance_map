@@ -10,7 +10,7 @@ source venv/bin/activate
 
 pip install -r requirements.txt
 
-Add more PDBs in the AF3 prediction folder
+【Add more PDBs in the AF3 prediction folder】
 
 python analyze_cgas_clustering.py
 
