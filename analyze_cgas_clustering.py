@@ -7,38 +7,25 @@ New features:
 - Generate difference maps (each condition - apo_cgas)
 - Interactive HTML visualizations for difference maps
 """
-print("Starting script...")
 
-print("Importing numpy...")
 import numpy as np
-print("Importing matplotlib...")
 import matplotlib.pyplot as plt
-print("Importing seaborn...")
 import seaborn as sns
-print("Importing pathlib...")
 from pathlib import Path
-print("Importing scipy...")
 from scipy.cluster.hierarchy import dendrogram, linkage, fcluster
-print("Importing sklearn PCA...")
 from sklearn.decomposition import PCA
-print("Importing sklearn KMeans...")
 from sklearn.cluster import KMeans
-print("Importing plotly...")
 import plotly.graph_objects as go
-print("Importing plotly subplots...")
 from plotly.subplots import make_subplots
-print("Importing warnings...")
 import warnings
 warnings.filterwarnings('ignore')
 
-print("Importing gemmi or Bio.PDB...")
 try:
     import gemmi
     HAS_GEMMI = True
 except ImportError:
     HAS_GEMMI = False
     from Bio.PDB import MMCIFParser
-print("Imports complete.")
 
 def parse_cif(cif_file):
     """Parse .cif file and extract all chains."""
@@ -127,9 +114,12 @@ def calculate_monomer_contact_map(residues, cutoff=8.0):
     
     return contact_map, dist_matrix
 
-def process_all_structures(base_dir):
+def process_all_structures(base_dir, pdf_output_dir):
     """Process all .cif files in AF3 prediction folder."""
     results = []
+    
+    # Create PDF output directory
+    pdf_output_dir.mkdir(exist_ok=True)
     
     af3_dir = base_dir / "AF3 prediction"
     subdirs = sorted([d for d in af3_dir.iterdir() if d.is_dir()])
@@ -156,6 +146,10 @@ def process_all_structures(base_dir):
                 
                 n_contacts = contact_map.sum()
                 print(f"  Contact map: {contact_map.shape}, {n_contacts} contacts")
+                
+                # Generate PDF contact map
+                pdf_path = plot_contact_map_pdf(contact_map, condition, model_id, pdf_output_dir)
+                print(f"  Saved PDF: {pdf_path.name}")
                 
                 results.append({
                     'condition': condition,
@@ -200,6 +194,35 @@ def create_hover_text_simple(n_res):
         hover_text.append(row)
     return hover_text
 
+def plot_contact_map_pdf(contact_map, condition, model_id, output_dir):
+    """Save individual contact map as PDF with origin at bottom-left."""
+    fig, ax = plt.subplots(figsize=(10, 9))
+    
+    # Use origin='lower' to place (0,0) at bottom-left
+    im = ax.imshow(contact_map, cmap='YlOrRd', origin='lower', aspect='auto')
+    
+    ax.set_title(f'{condition} - Model {model_id}\ncGAS Monomer Contact Map',
+                 fontsize=14, fontweight='bold', pad=15)
+    ax.set_xlabel('cGAS Residue Position', fontsize=12, fontweight='bold')
+    ax.set_ylabel('cGAS Residue Position', fontsize=12, fontweight='bold')
+    
+    # Add colorbar
+    cbar = plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+    cbar.set_label('Contact', fontsize=11, fontweight='bold')
+    
+    # Add grid for better readability
+    ax.set_xticks(range(0, contact_map.shape[0], 50))
+    ax.set_yticks(range(0, contact_map.shape[1], 50))
+    ax.grid(False)
+    
+    plt.tight_layout()
+    
+    pdf_path = output_dir / f"{condition}_{model_id}_contact_map.pdf"
+    plt.savefig(pdf_path, dpi=300, bbox_inches='tight', format='pdf')
+    plt.close()
+    
+    return pdf_path
+
 def plot_difference_map_html(diff_map, condition, output_dir):
     """Create interactive HTML difference map."""
     n_res = diff_map.shape[0]
@@ -240,7 +263,7 @@ def plot_difference_map_html(diff_map, condition, output_dir):
             tickmode='linear',
             tick0=0,
             dtick=50,
-            autorange='reversed'
+            scaleanchor='x'
         ),
         width=900,
         height=850,
@@ -253,24 +276,28 @@ def plot_difference_map_html(diff_map, condition, output_dir):
     
     return fig
 
-def flatten_contact_map(contact_map, region_start=50, region_end=80):
+def flatten_contact_map(contact_map, region_start=None, region_end=None):
     """
     Flatten contact map region into 1D feature vector.
     
     Args:
         contact_map: Full contact map (N x N)
-        region_start: Start residue (1-indexed, will convert to 0-indexed)
-        region_end: End residue (1-indexed, will convert to 0-indexed)
+        region_start: Start residue (1-indexed, will convert to 0-indexed). None = use entire map
+        region_end: End residue (1-indexed, will convert to 0-indexed). None = use entire map
     
     Returns:
-        Flattened upper triangle of the specified region
+        Flattened upper triangle of the specified region (or full map if region not specified)
     """
-    # Convert to 0-indexed
-    start_idx = region_start - 1
-    end_idx = region_end
-    
-    # Extract region submatrix
-    region = contact_map[start_idx:end_idx, start_idx:end_idx]
+    if region_start is None or region_end is None:
+        # Use full contact map
+        region = contact_map
+    else:
+        # Convert to 0-indexed
+        start_idx = region_start - 1
+        end_idx = region_end
+        
+        # Extract region submatrix
+        region = contact_map[start_idx:end_idx, start_idx:end_idx]
     
     # Get upper triangle (excluding diagonal)
     n = region.shape[0]
@@ -278,19 +305,26 @@ def flatten_contact_map(contact_map, region_start=50, region_end=80):
     
     return region[indices]
 
-def perform_clustering(results, output_dir):
+def perform_clustering(results, output_dir, region_start=50, region_end=80, suffix=""):
     """Perform clustering analysis."""
+    region_label = f"residues {region_start}-{region_end}" if region_start and region_end else "full monomer"
+    
     print(f"\n{'='*80}")
-    print("CLUSTERING ANALYSIS (Based on residues 50-80 region)")
+    print(f"CLUSTERING ANALYSIS (Based on {region_label})")
     print(f"{'='*80}")
     
     labels = [f"{r['condition']}_model{r['model_id']}" for r in results]
     conditions = [r['condition'] for r in results]
     
-    print("\nFlattening contact maps (region 50-80)...")
-    features = np.array([flatten_contact_map(r['contact_map'], 50, 80) for r in results])
+    print(f"\nFlattening contact maps ({region_label})...")
+    features = np.array([flatten_contact_map(r['contact_map'], region_start, region_end) for r in results])
     print(f"Feature matrix shape: {features.shape}")
-    print(f"Region analyzed: residues 50-80 (31x31 submatrix = {31*30//2} features)")
+    if region_start and region_end:
+        n_res = region_end - region_start + 1
+        print(f"Region analyzed: residues {region_start}-{region_end} ({n_res}x{n_res} submatrix = {n_res*(n_res-1)//2} features)")
+    else:
+        n_res = results[0]['contact_map'].shape[0]
+        print(f"Full monomer analyzed: {n_res} residues ({n_res}x{n_res} matrix = {n_res*(n_res-1)//2} features)")
     
     print("\nPerforming PCA...")
     pca = PCA(n_components=min(10, len(results)))
@@ -317,7 +351,9 @@ def perform_clustering(results, output_dir):
         'kmeans_clusters': kmeans_labels,
         'linkage_matrix': linkage_matrix,
         'pca': pca,
-        'features': features
+        'features': features,
+        'region_label': region_label,
+        'suffix': suffix
     }
 
 def plot_dendrogram(results, clustering_results, output_dir):
@@ -325,6 +361,8 @@ def plot_dendrogram(results, clustering_results, output_dir):
     labels = clustering_results['labels']
     linkage_matrix = clustering_results['linkage_matrix']
     conditions = clustering_results['conditions']
+    region_label = clustering_results['region_label']
+    suffix = clustering_results['suffix']
     
     colors_dict = {
         'apo_cgas': '#808080',
@@ -360,7 +398,7 @@ def plot_dendrogram(results, clustering_results, output_dir):
             label.set_color(colors_dict[cond])
             label.set_fontweight('bold')
     
-    ax.set_title('Hierarchical Clustering - cGAS Monomer Contacts (Residues 50-80)',
+    ax.set_title(f'Hierarchical Clustering - cGAS Monomer Contacts ({region_label})',
                  fontsize=14, fontweight='bold', pad=20)
     ax.set_xlabel('Structure (colored by condition)', fontsize=12, fontweight='bold')
     ax.set_ylabel('Distance (Ward linkage)', fontsize=12, fontweight='bold')
@@ -371,8 +409,9 @@ def plot_dendrogram(results, clustering_results, output_dir):
     ax.legend(handles=legend_elements, loc='upper left', fontsize=9, ncol=2)
     
     plt.tight_layout()
-    plt.savefig(output_dir / 'dendrogram.png', dpi=300, bbox_inches='tight')
-    print(f"Saved: dendrogram.png")
+    filename = f'dendrogram{suffix}.png'
+    plt.savefig(output_dir / filename, dpi=300, bbox_inches='tight')
+    print(f"Saved: {filename}")
     plt.close()
 
 def plot_pca_scatter(clustering_results, output_dir):
@@ -380,6 +419,8 @@ def plot_pca_scatter(clustering_results, output_dir):
     pca_features = clustering_results['pca_features']
     conditions = clustering_results['conditions']
     labels = clustering_results['labels']
+    region_label = clustering_results['region_label']
+    suffix = clustering_results['suffix']
     
     colors_dict = {
         'apo_cgas': '#808080',
@@ -418,7 +459,7 @@ def plot_pca_scatter(clustering_results, output_dir):
         ))
     
     fig.update_layout(
-        title='PCA of cGAS Monomer Contacts (Residues 50-80)',
+        title=f'PCA of cGAS Monomer Contacts ({region_label})',
         xaxis_title='PC1',
         yaxis_title='PC2',
         width=1100,
@@ -426,8 +467,9 @@ def plot_pca_scatter(clustering_results, output_dir):
         font=dict(size=12)
     )
     
-    fig.write_html(str(output_dir / 'pca_scatter.html'))
-    print(f"Saved: pca_scatter.html")
+    filename = f'pca_scatter{suffix}.html'
+    fig.write_html(str(output_dir / filename))
+    print(f"Saved: {filename}")
 
 def analyze_cluster_composition(clustering_results):
     """Analyze cluster composition."""
@@ -460,13 +502,17 @@ def main():
     output_dir = base_dir / "clustering_analysis"
     output_dir.mkdir(exist_ok=True)
     
+    # Create PDF output directory
+    pdf_output_dir = output_dir / "contact_maps_pdf"
+    
     print("="*80)
     print("cGAS MONOMER CLUSTERING & DIFFERENTIAL ANALYSIS")
     print("="*80)
-    print(f"\nOutput directory: {output_dir}\n")
+    print(f"\nOutput directory: {output_dir}")
+    print(f"PDF contact maps: {pdf_output_dir}\n")
     
     # Process all structures
-    results = process_all_structures(base_dir)
+    results = process_all_structures(base_dir, pdf_output_dir)
     
     if not results:
         print("\nERROR: No structures processed!")
@@ -501,30 +547,47 @@ def main():
     else:
         print("\nWarning: No apo_cgas found, skipping difference maps")
     
-    # Perform clustering
-    clustering_results = perform_clustering(results, output_dir)
+    # Perform clustering for residues 50-80
+    clustering_results_50_80 = perform_clustering(results, output_dir, region_start=50, region_end=80, suffix="")
     
-    # Analyze clusters
-    analyze_cluster_composition(clustering_results)
+    # Perform clustering for full monomer
+    clustering_results_full = perform_clustering(results, output_dir, region_start=None, region_end=None, suffix="_full_monomer")
     
-    # Create visualizations
+    # Analyze clusters for both analyses
+    print(f"\n{'='*80}")
+    print("CLUSTER COMPOSITION ANALYSIS - RESIDUES 50-80")
+    print(f"{'='*80}")
+    analyze_cluster_composition(clustering_results_50_80)
+    
+    print(f"\n{'='*80}")
+    print("CLUSTER COMPOSITION ANALYSIS - FULL MONOMER")
+    print(f"{'='*80}")
+    analyze_cluster_composition(clustering_results_full)
+    
+    # Create visualizations for both analyses
     print(f"\n{'='*80}")
     print("CREATING CLUSTERING VISUALIZATIONS")
     print(f"{'='*80}\n")
     
-    plot_dendrogram(results, clustering_results, output_dir)
-    plot_pca_scatter(clustering_results, output_dir)
+    print("Residues 50-80 analysis:")
+    plot_dendrogram(results, clustering_results_50_80, output_dir)
+    plot_pca_scatter(clustering_results_50_80, output_dir)
+    
+    print("\nFull monomer analysis:")
+    plot_dendrogram(results, clustering_results_full, output_dir)
+    plot_pca_scatter(clustering_results_full, output_dir)
     
     print(f"\n{'='*80}")
     print("✅ ANALYSIS COMPLETE!")
     print(f"{'='*80}")
     print(f"\nResults saved to: {output_dir}")
     print(f"\nGenerated files:")
-    print(f"  • dendrogram.png - Hierarchical clustering tree")
-    print(f"  • pca_scatter.html - Interactive PCA plot")
+    print(f"  • contact_maps_pdf/*.pdf - Individual contact maps for each structure")
+    print(f"  • dendrogram.png - Hierarchical clustering (residues 50-80)")
+    print(f"  • pca_scatter.html - Interactive PCA plot (residues 50-80)")
+    print(f"  • dendrogram_full_monomer.png - Hierarchical clustering (full monomer)")
+    print(f"  • pca_scatter_full_monomer.html - Interactive PCA plot (full monomer)")
     print(f"  • diff_*.html - Interactive difference maps vs apo_cgas")
 
 if __name__ == "__main__":
-    print("Executing main...")
     main()
-    print("Main finished.")
